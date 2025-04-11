@@ -97,20 +97,29 @@ def index():
         ticker = selected_ticker.strip().upper()
         try:
             data = yf.download(ticker, period='6mo')
+
             if data.empty or len(data) < 30:
                 raise ValueError(f"No chart data returned for '{ticker}'. Please check the symbol or try another one.")
 
+            # Reset index to access 'Date' as a column
+            data.reset_index(inplace=True)
             data['Days'] = range(len(data))
+
             model = LinearRegression()
             model.fit(data[['Days']], data['Close'])
 
-            # Future forecast
-            future = pd.DataFrame({'Days': range(len(data), len(data) + 30)})
-            future_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), periods=30)
-            future_predictions = model.predict(future[['Days']])
+            # Predict future
+            future_days = list(range(len(data), len(data) + 30))
+            future_dates = pd.date_range(start=data['Date'].iloc[-1] + pd.Timedelta(days=1), periods=30)
+            future_prices = model.predict(pd.DataFrame({'Days': future_days}))
 
-            trace_actual = go.Scatter(x=data.index, y=data['Close'], mode='lines', name='Actual Price')
-            trace_predicted = go.Scatter(x=future_dates, y=future_predictions, mode='lines', name='Predicted Price', line=dict(dash='dash'))
+            # Plot actual + future
+            trace_actual = go.Scatter(
+                x=data['Date'], y=data['Close'], mode='lines', name='Actual Price'
+            )
+            trace_predicted = go.Scatter(
+                x=future_dates, y=future_prices, mode='lines', name='Predicted Price', line=dict(dash='dash')
+            )
 
             layout = go.Layout(
                 title=f"{ticker} Price Prediction (Next 30 Days)",
@@ -118,10 +127,11 @@ def index():
                 yaxis_title="Price (USD)",
                 template="plotly_dark"
             )
+
             fig = go.Figure(data=[trace_actual, trace_predicted], layout=layout)
             chart_html = pio.to_html(fig, full_html=False)
 
-            # Save to watchlist if new
+            # Save to watchlist
             if not Watchlist.query.filter_by(user_id=user.id, ticker=ticker).first():
                 db.session.add(Watchlist(ticker=ticker, user_id=user.id))
                 db.session.commit()
@@ -132,7 +142,7 @@ def index():
     watchlist_items = Watchlist.query.filter_by(user_id=user.id).all()
     watchlist = [item.ticker for item in watchlist_items]
 
-    return render_template('index.html', chart_html=chart_html, error=error, watchlist=watchlist)
+    return render_template("index.html", chart_html=chart_html, error=error, watchlist=watchlist)
 
 # Run on Render-compatible port
 if __name__ == '__main__':
