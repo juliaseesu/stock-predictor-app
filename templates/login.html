@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h2>Login</h2>
+    <form method="POST">
+        <input type="text" name="username" placeholder="Username" required><br><br>
+        <input type="password" id="password" name="password" placeholder="Password" required><br>
+        <label><input type="checkbox" onclick="togglePassword()"> Show Password</label><br><br>
+        <button type="submit">Login</button>
+    </form>
+    {% if error %}<p style="color: red;">{{ error }}</p>{% endif %}
+    <p>Don't have an account? <a href="{{ url_for('register') }}">Register</a></p>
+
+    <script>
+    function togglePassword() {
+        const pwd = document.getElementById("password");
+        pwd.type = pwd.type === "password" ? "text" : "password";
+    }
+    </script>
+</body>
+</html>

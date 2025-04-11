@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Stock & Crypto Predictor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div style="display: flex; justify-content: center; align-items: center; margin-top: 20px;">
+        <img src="{{ url_for('static', filename='logo.png') }}" style="height: 60px; margin-right: 15px;">
+        <h2>📈 Stock & Crypto Price Predictor</h2>
+    </div>
+
+    <form method="GET" action="{{ url_for('logout') }}" style="text-align: center; margin: 10px;">
+        <button type="submit" style="background-color: #444;">Logout</button>
+    </form>
+
+    <form method="POST">
+        <input type="text" name="ticker" placeholder="e.g. AAPL or BTC-USD" required>
+        <button type="submit">Predict</button>
+    </form>
+
+    {% if error %}
+        <p style="color: #ff5e5e;">⚠️ {{ error }}</p>
+    {% endif %}
+
+    {% if watchlist %}
+        <h3>Your Watchlist</h3>
+        <ul style="list-style: none; padding-left: 0;">
+            {% for item in watchlist %}
+                <li style="margin-bottom: 10px;">
+                    <form method="GET" action="/" style="display: inline;">
+                        <input type="hidden" name="ticker" value="{{ item }}">
+                        <button type="submit" style="background: none; border: none; color: #1db954;">{{ item }}</button>
+                    </form>
+                    <form method="POST" action="{{ url_for('remove_ticker', ticker=item) }}" style="display: inline;">
+                        <button type="submit" style="background: none; border: none; color: #ff5e5e;">✖</button>
+                    </form>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+
+    {% if chart_html %}
+        <div style="margin: 30px auto; max-width: 1000px;">
+            {{ chart_html|safe }}
+        </div>
+    {% endif %}
+</body>
+</html>
