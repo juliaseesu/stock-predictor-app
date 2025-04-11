@@ -11,7 +11,7 @@ import os
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 
-# Database setup
+# Database config
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///stockapp.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
@@ -106,7 +106,7 @@ def index():
 
             future_days = list(range(len(df), len(df) + 30))
             future_dates = pd.date_range(start=df['Date'].iloc[-1] + pd.Timedelta(days=1), periods=30)
-            predictions = pd.Series(model.predict(pd.DataFrame({'Days': future_days}))).dropna().tolist()
+            predictions = list(pd.Series(model.predict(pd.DataFrame({'Days': future_days}))).dropna())
 
             trace_actual = go.Scatter(
                 x=df['Date'],
