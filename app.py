@@ -111,7 +111,8 @@ def index():
 
             future_days = list(range(len(data), len(data) + 30))
             future_dates = pd.date_range(start=data['Date'].iloc[-1] + pd.Timedelta(days=1), periods=30)
-            future_prices = model.predict(pd.DataFrame({'Days': future_days}))
+            future_prices = model.predict(pd.DataFrame({'Days': future_days})).flatten().tolist()
+
 
             trace_actual = go.Scatter(
                 x=data['Date'], y=data['Close'],
