@@ -9,14 +9,14 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import os
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'  # Replace with a strong key
+app.secret_key = 'your_secret_key'
 
 # Database config
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///stockapp.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# Database Models
+# Models
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -28,11 +28,10 @@ class Watchlist(db.Model):
     ticker = db.Column(db.String(20), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
-# Create tables if not exist
+# Create tables
 with app.app_context():
     db.create_all()
 
-# User Registration
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     error = None
@@ -49,7 +48,6 @@ def register():
             return redirect(url_for('index'))
     return render_template('register.html', error=error)
 
-# Login
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error = None
@@ -64,13 +62,11 @@ def login():
             error = 'Invalid username or password.'
     return render_template('login.html', error=error)
 
-# Logout
 @app.route('/logout')
 def logout():
     session.pop('user', None)
     return redirect(url_for('login'))
 
-# Remove from Watchlist
 @app.route('/remove/<ticker>', methods=['POST'])
 def remove_ticker(ticker):
     if 'user' not in session:
@@ -82,7 +78,6 @@ def remove_ticker(ticker):
         db.session.commit()
     return redirect(url_for('index'))
 
-# Homepage
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if 'user' not in session:
@@ -103,15 +98,27 @@ def index():
             data['Days'] = range(len(data))
             model = LinearRegression()
             model.fit(data[['Days']], data['Close'])
-            data['Prediction'] = model.predict(data[['Days']])
 
+            # Create future prediction for next 30 days
+            future = pd.DataFrame({'Days': range(len(data), len(data) + 30)})
+            future_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), periods=30)
+            future_predictions = model.predict(future[['Days']])
+
+            # Plot actual and predicted
             trace_actual = go.Scatter(x=data.index, y=data['Close'], mode='lines', name='Actual Price')
-            trace_predicted = go.Scatter(x=data.index, y=data['Prediction'], mode='lines', name='Predicted Price')
-            layout = go.Layout(title=f"{ticker} Price Prediction", xaxis_title="Date", yaxis_title="Price (USD)", template="plotly_dark")
+            trace_predicted = go.Scatter(x=future_dates, y=future_predictions, mode='lines', name='Predicted Price', line=dict(dash='dash'))
+
+            layout = go.Layout(
+                title=f"{ticker} Price Prediction (Past + Next 30 Days)",
+                xaxis_title="Date",
+                yaxis_title="Price (USD)",
+                template="plotly_dark"
+            )
+
             fig = go.Figure(data=[trace_actual, trace_predicted], layout=layout)
             chart_html = pio.to_html(fig, full_html=False)
 
-            # Save to watchlist if not already added
+            # Save to watchlist
             if not Watchlist.query.filter_by(user_id=user.id, ticker=ticker).first():
                 db.session.add(Watchlist(ticker=ticker, user_id=user.id))
                 db.session.commit()
@@ -124,7 +131,7 @@ def index():
 
     return render_template("index.html", chart_html=chart_html, error=error, watchlist=watchlist)
 
-# Render-compatible launch
+# Port binding for Render
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=False, host='0.0.0.0', port=port)
