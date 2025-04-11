@@ -96,48 +96,64 @@ def index():
     if selected_ticker:
         ticker = selected_ticker.strip().upper()
         try:
+            # Download historical data
             data = yf.download(ticker, period='6mo')
             if data.empty or len(data) < 30:
                 raise ValueError(f"No chart data returned for '{ticker}'.")
 
+            # Clean and prepare data
             data.reset_index(inplace=True)
             data = data[['Date', 'Close']].dropna()
-            data['Days'] = range(len(data))
+            data['Days'] = list(range(len(data)))
             data['Close'] = pd.to_numeric(data['Close'], errors='coerce')
             data.dropna(subset=['Close'], inplace=True)
 
+            # Train model
             model = LinearRegression()
             model.fit(data[['Days']], data['Close'])
 
+            # Predict future
             future_days = list(range(len(data), len(data) + 30))
+            future_df = pd.DataFrame({'Days': future_days})
+            future_prices_raw = model.predict(future_df)
+            future_prices = [float(x) for x in future_prices_raw]
+
             future_dates = pd.date_range(start=data['Date'].iloc[-1] + pd.Timedelta(days=1), periods=30)
-            future_prices = model.predict(pd.DataFrame({'Days': future_days})).flatten().tolist()
 
-
+            # Plot
             trace_actual = go.Scatter(
-                x=data['Date'], y=data['Close'],
-                mode='lines', name='Actual Price',
+                x=data['Date'],
+                y=data['Close'],
+                mode='lines',
+                name='Actual Price',
                 line=dict(color='deepskyblue')
             )
 
             trace_predicted = go.Scatter(
-                x=future_dates, y=future_prices,
-                mode='lines', name='Predicted Price',
+                x=future_dates,
+                y=future_prices,
+                mode='lines',
+                name='Predicted Price',
                 line=dict(color='orange', dash='dash')
             )
 
             layout = go.Layout(
                 title=f"{ticker} Price Prediction (Next 30 Days)",
                 xaxis=dict(title="Date"),
-                yaxis=dict(title="Price (USD)",
-                           range=[min(data['Close'].min(), future_prices.min()) - 10,
-                                  max(data['Close'].max(), future_prices.max()) + 10]),
+                yaxis=dict(
+                    title="Price (USD)",
+                    range=[
+                        min(data['Close'].min(), min(future_prices)) - 10,
+                        max(data['Close'].max(), max(future_prices)) + 10
+                    ]
+                ),
                 template="plotly_dark"
             )
 
             fig = go.Figure(data=[trace_actual, trace_predicted], layout=layout)
             chart_html = pio.to_html(fig, full_html=False)
 
+            # Save to watchlist if not already saved
             if not Watchlist.query.filter_by(user_id=user.id, ticker=ticker).first():
                 db.session.add(Watchlist(ticker=ticker, user_id=user.id))
                 db.session.commit()
@@ -145,6 +161,7 @@ def index():
         except Exception as e:
             error = str(e)
 
+    # Get watchlist
     watchlist_items = Watchlist.query.filter_by(user_id=user.id).all()
     watchlist = [item.ticker for item in watchlist_items]
 
