@@ -32,7 +32,6 @@ class Watchlist(db.Model):
 with app.app_context():
     db.create_all()
 
-# Register
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     error = None
@@ -49,7 +48,6 @@ def register():
             return redirect(url_for('index'))
     return render_template('register.html', error=error)
 
-# Login
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error = None
@@ -64,13 +62,11 @@ def login():
             error = 'Invalid username or password.'
     return render_template('login.html', error=error)
 
-# Logout
 @app.route('/logout')
 def logout():
     session.pop('user', None)
     return redirect(url_for('login'))
 
-# Remove ticker
 @app.route('/remove/<ticker>', methods=['POST'])
 def remove_ticker(ticker):
     if 'user' not in session:
@@ -82,7 +78,6 @@ def remove_ticker(ticker):
         db.session.commit()
     return redirect(url_for('index'))
 
-# Home
 @app.route('/', methods=['GET', 'POST'])
 def index():
     user = User.query.filter_by(username=session.get('user')).first()
@@ -96,34 +91,26 @@ def index():
     if selected_ticker:
         ticker = selected_ticker.strip().upper()
         try:
-            # Download historical data
-            data = yf.download(ticker, period='6mo')
-            if data.empty or len(data) < 30:
-                raise ValueError(f"No chart data returned for '{ticker}'.")
+            df = yf.download(ticker, period='6mo')
+            if df.empty or 'Close' not in df.columns or df['Close'].isna().all():
+                raise ValueError(f"No usable price data for {ticker}")
 
-            # Clean and prepare data
-            data.reset_index(inplace=True)
-            data = data[['Date', 'Close']].dropna()
-            data['Days'] = list(range(len(data)))
-            data['Close'] = pd.to_numeric(data['Close'], errors='coerce')
-            data.dropna(subset=['Close'], inplace=True)
+            df.reset_index(inplace=True)
+            df = df[['Date', 'Close']].dropna()
+            df['Days'] = range(len(df))
+            df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
+            df.dropna(subset=['Close'], inplace=True)
 
-            # Train model
             model = LinearRegression()
-            model.fit(data[['Days']], data['Close'])
+            model.fit(df[['Days']], df['Close'])
 
-            # Predict future
-            future_days = list(range(len(data), len(data) + 30))
-            future_df = pd.DataFrame({'Days': future_days})
-            future_prices_raw = model.predict(future_df)
-            future_prices = [float(x) for x in future_prices_raw]
+            future_days = list(range(len(df), len(df) + 30))
+            future_dates = pd.date_range(start=df['Date'].iloc[-1] + pd.Timedelta(days=1), periods=30)
+            predictions = pd.Series(model.predict(pd.DataFrame({'Days': future_days}))).dropna().tolist()
 
-            future_dates = pd.date_range(start=data['Date'].iloc[-1] + pd.Timedelta(days=1), periods=30)
-
-            # Plot
             trace_actual = go.Scatter(
-                x=data['Date'],
-                y=data['Close'],
+                x=df['Date'],
+                y=df['Close'],
                 mode='lines',
                 name='Actual Price',
                 line=dict(color='deepskyblue')
@@ -131,29 +118,28 @@ def index():
 
             trace_predicted = go.Scatter(
                 x=future_dates,
-                y=future_prices,
+                y=predictions,
                 mode='lines',
                 name='Predicted Price',
                 line=dict(color='orange', dash='dash')
             )
 
-            layout = go.Layout(
+            fig = go.Figure(data=[trace_actual, trace_predicted])
+            fig.update_layout(
                 title=f"{ticker} Price Prediction (Next 30 Days)",
-                xaxis=dict(title="Date"),
+                xaxis_title="Date",
+                yaxis_title="Price (USD)",
+                template="plotly_dark",
                 yaxis=dict(
-                    title="Price (USD)",
                     range=[
-                        min(data['Close'].min(), min(future_prices)) - 10,
-                        max(data['Close'].max(), max(future_prices)) + 10
+                        min(df['Close'].min(), min(predictions)) - 5,
+                        max(df['Close'].max(), max(predictions)) + 5
                     ]
-                ),
-                template="plotly_dark"
+                )
             )
 
-            fig = go.Figure(data=[trace_actual, trace_predicted], layout=layout)
             chart_html = pio.to_html(fig, full_html=False)
 
-            # Save to watchlist if not already saved
             if not Watchlist.query.filter_by(user_id=user.id, ticker=ticker).first():
                 db.session.add(Watchlist(ticker=ticker, user_id=user.id))
                 db.session.commit()
@@ -161,13 +147,11 @@ def index():
         except Exception as e:
             error = str(e)
 
-    # Get watchlist
     watchlist_items = Watchlist.query.filter_by(user_id=user.id).all()
     watchlist = [item.ticker for item in watchlist_items]
 
     return render_template("index.html", chart_html=chart_html, error=error, watchlist=watchlist)
 
-# Render compatibility
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=False, host='0.0.0.0', port=port)
