@@ -6,16 +6,17 @@ import plotly.graph_objs as go
 import plotly.io as pio
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+import os
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'
+app.secret_key = 'your_secret_key'  # Replace with a strong key
 
 # Database config
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///stockapp.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# Models
+# Database Models
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -27,9 +28,11 @@ class Watchlist(db.Model):
     ticker = db.Column(db.String(20), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
+# Create tables if not exist
 with app.app_context():
     db.create_all()
 
+# User Registration
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     error = None
@@ -46,6 +49,7 @@ def register():
             return redirect(url_for('index'))
     return render_template('register.html', error=error)
 
+# Login
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error = None
@@ -60,11 +64,13 @@ def login():
             error = 'Invalid username or password.'
     return render_template('login.html', error=error)
 
+# Logout
 @app.route('/logout')
 def logout():
     session.pop('user', None)
     return redirect(url_for('login'))
 
+# Remove from Watchlist
 @app.route('/remove/<ticker>', methods=['POST'])
 def remove_ticker(ticker):
     if 'user' not in session:
@@ -76,11 +82,12 @@ def remove_ticker(ticker):
         db.session.commit()
     return redirect(url_for('index'))
 
+# Homepage
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if 'user' not in session:
         return redirect(url_for('login'))
-    
+
     user = User.query.filter_by(username=session['user']).first()
     chart_html = None
     error = None
@@ -104,8 +111,8 @@ def index():
             fig = go.Figure(data=[trace_actual, trace_predicted], layout=layout)
             chart_html = pio.to_html(fig, full_html=False)
 
-            existing = Watchlist.query.filter_by(user_id=user.id, ticker=ticker).first()
-            if not existing:
+            # Save to watchlist if not already added
+            if not Watchlist.query.filter_by(user_id=user.id, ticker=ticker).first():
                 db.session.add(Watchlist(ticker=ticker, user_id=user.id))
                 db.session.commit()
 
@@ -116,3 +123,8 @@ def index():
     watchlist = [item.ticker for item in watchlist_items]
 
     return render_template("index.html", chart_html=chart_html, error=error, watchlist=watchlist)
+
+# Render-compatible launch
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port)
