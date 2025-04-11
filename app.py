@@ -11,7 +11,7 @@ import os
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 
-# Database configuration
+# Database setup
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///stockapp.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
@@ -28,7 +28,7 @@ class Watchlist(db.Model):
     ticker = db.Column(db.String(20), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
-# Create database tables
+# Create tables
 with app.app_context():
     db.create_all()
 
@@ -82,7 +82,7 @@ def remove_ticker(ticker):
         db.session.commit()
     return redirect(url_for('index'))
 
-# Home route
+# Home
 @app.route('/', methods=['GET', 'POST'])
 def index():
     user = User.query.filter_by(username=session.get('user')).first()
@@ -97,41 +97,46 @@ def index():
         ticker = selected_ticker.strip().upper()
         try:
             data = yf.download(ticker, period='6mo')
-
             if data.empty or len(data) < 30:
-                raise ValueError(f"No chart data returned for '{ticker}'. Please check the symbol or try another one.")
+                raise ValueError(f"No chart data returned for '{ticker}'.")
 
-            # Reset index to access 'Date' as a column
             data.reset_index(inplace=True)
+            data = data[['Date', 'Close']].dropna()
             data['Days'] = range(len(data))
+            data['Close'] = pd.to_numeric(data['Close'], errors='coerce')
+            data.dropna(subset=['Close'], inplace=True)
 
             model = LinearRegression()
             model.fit(data[['Days']], data['Close'])
 
-            # Predict future
             future_days = list(range(len(data), len(data) + 30))
             future_dates = pd.date_range(start=data['Date'].iloc[-1] + pd.Timedelta(days=1), periods=30)
             future_prices = model.predict(pd.DataFrame({'Days': future_days}))
 
-            # Plot actual + future
             trace_actual = go.Scatter(
-                x=data['Date'], y=data['Close'], mode='lines', name='Actual Price'
+                x=data['Date'], y=data['Close'],
+                mode='lines', name='Actual Price',
+                line=dict(color='deepskyblue')
             )
+
             trace_predicted = go.Scatter(
-                x=future_dates, y=future_prices, mode='lines', name='Predicted Price', line=dict(dash='dash')
+                x=future_dates, y=future_prices,
+                mode='lines', name='Predicted Price',
+                line=dict(color='orange', dash='dash')
             )
 
             layout = go.Layout(
                 title=f"{ticker} Price Prediction (Next 30 Days)",
-                xaxis_title="Date",
-                yaxis_title="Price (USD)",
+                xaxis=dict(title="Date"),
+                yaxis=dict(title="Price (USD)",
+                           range=[min(data['Close'].min(), future_prices.min()) - 10,
+                                  max(data['Close'].max(), future_prices.max()) + 10]),
                 template="plotly_dark"
             )
 
             fig = go.Figure(data=[trace_actual, trace_predicted], layout=layout)
             chart_html = pio.to_html(fig, full_html=False)
 
-            # Save to watchlist
             if not Watchlist.query.filter_by(user_id=user.id, ticker=ticker).first():
                 db.session.add(Watchlist(ticker=ticker, user_id=user.id))
                 db.session.commit()
@@ -144,7 +149,7 @@ def index():
 
     return render_template("index.html", chart_html=chart_html, error=error, watchlist=watchlist)
 
-# Run on Render-compatible port
+# Render compatibility
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=False, host='0.0.0.0', port=port)
