@@ -11,7 +11,7 @@ import os
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 
-# Database config
+# Database configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///stockapp.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
@@ -28,10 +28,11 @@ class Watchlist(db.Model):
     ticker = db.Column(db.String(20), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
-# Create tables
+# Create database tables
 with app.app_context():
     db.create_all()
 
+# Register
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     error = None
@@ -48,6 +49,7 @@ def register():
             return redirect(url_for('index'))
     return render_template('register.html', error=error)
 
+# Login
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error = None
@@ -62,11 +64,13 @@ def login():
             error = 'Invalid username or password.'
     return render_template('login.html', error=error)
 
+# Logout
 @app.route('/logout')
 def logout():
     session.pop('user', None)
     return redirect(url_for('login'))
 
+# Remove ticker
 @app.route('/remove/<ticker>', methods=['POST'])
 def remove_ticker(ticker):
     if 'user' not in session:
@@ -78,12 +82,13 @@ def remove_ticker(ticker):
         db.session.commit()
     return redirect(url_for('index'))
 
+# Home route
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    if 'user' not in session:
+    user = User.query.filter_by(username=session.get('user')).first()
+    if not user:
         return redirect(url_for('login'))
 
-    user = User.query.filter_by(username=session['user']).first()
     chart_html = None
     error = None
     selected_ticker = request.form.get('ticker') or request.args.get('ticker')
@@ -92,33 +97,31 @@ def index():
         ticker = selected_ticker.strip().upper()
         try:
             data = yf.download(ticker, period='6mo')
-            if data.empty:
-                raise ValueError("No data found. Try another ticker.")
+            if data.empty or len(data) < 30:
+                raise ValueError(f"No chart data returned for '{ticker}'. Please check the symbol or try another one.")
 
             data['Days'] = range(len(data))
             model = LinearRegression()
             model.fit(data[['Days']], data['Close'])
 
-            # Create future prediction for next 30 days
+            # Future forecast
             future = pd.DataFrame({'Days': range(len(data), len(data) + 30)})
             future_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), periods=30)
             future_predictions = model.predict(future[['Days']])
 
-            # Plot actual and predicted
             trace_actual = go.Scatter(x=data.index, y=data['Close'], mode='lines', name='Actual Price')
             trace_predicted = go.Scatter(x=future_dates, y=future_predictions, mode='lines', name='Predicted Price', line=dict(dash='dash'))
 
             layout = go.Layout(
-                title=f"{ticker} Price Prediction (Past + Next 30 Days)",
+                title=f"{ticker} Price Prediction (Next 30 Days)",
                 xaxis_title="Date",
                 yaxis_title="Price (USD)",
                 template="plotly_dark"
             )
-
             fig = go.Figure(data=[trace_actual, trace_predicted], layout=layout)
             chart_html = pio.to_html(fig, full_html=False)
 
-            # Save to watchlist
+            # Save to watchlist if new
             if not Watchlist.query.filter_by(user_id=user.id, ticker=ticker).first():
                 db.session.add(Watchlist(ticker=ticker, user_id=user.id))
                 db.session.commit()
@@ -129,9 +132,9 @@ def index():
     watchlist_items = Watchlist.query.filter_by(user_id=user.id).all()
     watchlist = [item.ticker for item in watchlist_items]
 
-    return render_template("index.html", chart_html=chart_html, error=error, watchlist=watchlist)
+    return render_template('index.html', chart_html=chart_html, error=error, watchlist=watchlist)
 
-# Port binding for Render
+# Run on Render-compatible port
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=False, host='0.0.0.0', port=port)
